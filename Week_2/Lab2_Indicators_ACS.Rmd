@@ -1,7 +1,7 @@
 ---
 title: "Lab 2: Why Start With Indicators?"
 author: "Matt Harris & Michael Fichman"
-date: '2023-09-08'
+date: '2023-09-18'
 output: html_document
 editor_options: 
   markdown: 
@@ -12,7 +12,9 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Why Start With Indicators?
+## Lab2 Content?
+### Introduction and Setting
+#### Introduction
 
 from Steif (2021), [Section
 1.1](https://urbanspatial.github.io/PublicPolicyAnalytics/TOD.html#why-start-with-indicators):
@@ -41,18 +43,14 @@ what makes a good indicator:
     analytics.
 
 In this lab we will walk through:
-
-1.  Use {tidycensus} to gather ACS data for two different years
-
-2.  Visualize data and maps with {ggplot2}
-
-3.  Use the {sf} package for geospatial operations such as **union**,
+  1.Gather Data: Use {tidycensus} to gather ACS data for two different years
+  2.Visualize Data: Visualize data and maps with {ggplot2}
+  3.Geospatial Operations: Use the {sf} package for geospatial operations such as **union**,
     **intersection** and **buffer**
-
-4.  Use maps and tables to analyze change over time *given* the products
+  4.Data Analyze: Use maps and tables to analyze change over time *given* the products
     of the geospatial operations
 
-### Load packages and functions
+#### Load packages and functions
 
 ```{r setup_packages, warning = FALSE, message = FALSE}
 # Load Libraries
@@ -71,13 +69,16 @@ palette5 <- c("#f0f9e8","#bae4bc","#7bccc4","#43a2ca","#0868ac")
 ```
 
 ```{r load_key, warning = FALSE, eval = FALSE}
-census_api_key("YOUR KEY GOES HERE", overwrite = TRUE)
+census_api_key("c2c1421b5c48d7f3c3c13df40f921a3dd1a940a1", overwrite = TRUE, install = TRUE)
 ```
 
-### Use `get_acs()` to get 2016 ACS data
 
-Notice this returns "long" data - let's examine it
+### 1- Acs Data Preparation
+#### 1-1 Get 2016 ACS data
 
+Methods 1: get "long data" first then transfer it into "wide" data
+
+Step1: Get "long" data
 ```{r results='hide'}
 tracts16 <-  
   get_acs(geography = "tract",
@@ -90,7 +91,76 @@ tracts16 <-
   st_transform('ESRI:102728')
 ```
 
-#### Wide data vs long data (and `spread`vs `gather`)
+Step2: Spread the data with `spread()`
+```{r}
+# Let's "spread" the data into wide form
+
+tracts16 <- 
+  tracts16 %>%
+  dplyr::select( -NAME, -moe) %>%
+  spread(key = variable, value = estimate) %>%
+  rename(TotalPop = B25026_001, 
+         Whites = B02001_002,
+         FemaleBachelors = B15001_050, 
+         MaleBachelors = B15001_009,
+         MedHHInc = B19013_001, 
+         MedRent = B25058_001,
+         TotalPoverty = B06012_002)
+```
+
+Step3: Create new rate variables using mutate
+```{r}
+tracts16 <- 
+  tracts16 %>%
+  mutate(pctWhite = ifelse(TotalPop > 0, Whites / TotalPop, 0),
+         pctBachelors = ifelse(TotalPop > 0, ((FemaleBachelors + MaleBachelors) / TotalPop), 0),
+         pctPoverty = ifelse(TotalPop > 0, TotalPoverty / TotalPop, 0),
+         year = "2016") %>%
+  dplyr::select(-Whites,-FemaleBachelors,-MaleBachelors,-TotalPoverty)
+```
+
+
+#### 1-2 Get 2020 ACS data
+
+Method 2: Get "wide" data in the first place and put the entire process into one continuous sequence
+
+Special functions: `get_acs()`'s agument: `output="wide"`
+
+```{r results='hide'}
+tracts20 <- 
+  get_acs(geography = "tract", 
+          variables = c("B25026_001E","B02001_002E",
+                        "B15001_050E","B15001_009E",
+                        "B19013_001E","B25058_001E",
+                        "B06012_002E"), 
+          year=2020, state=42, county=101, 
+          geometry=TRUE, output="wide") %>%
+  st_transform('ESRI:102728') %>%
+  rename(TotalPop = B25026_001E, 
+         Whites = B02001_002E,
+         FemaleBachelors = B15001_050E, 
+         MaleBachelors = B15001_009E,
+         MedHHInc = B19013_001E, 
+         MedRent = B25058_001E,
+         TotalPoverty = B06012_002E) %>%
+  dplyr::select(-NAME, -starts_with("B")) %>%
+  mutate(pctWhite = ifelse(TotalPop > 0, Whites / TotalPop,0),
+         pctBachelors = ifelse(TotalPop > 0, ((FemaleBachelors + MaleBachelors) / TotalPop),0),
+         pctPoverty = ifelse(TotalPop > 0, TotalPoverty / TotalPop, 0),
+         year = "2020") %>%
+  dplyr::select(-Whites, -FemaleBachelors, -MaleBachelors, -TotalPoverty) 
+```
+
+#### 1-3 Combine 2016 and 2020 ACS data
+
+Function used here: `rbind()` | The "r" in `rbind()` stands for "row"
+
+```{r}
+
+allTracts <- rbind(tracts16,tracts20)
+```
+
+#### Other: Wide data vs long data (and `spread`vs `gather`)
 
 Take a moment to think about the *shape* of data. The gif below is a
 visualization of **wide** vs. **long** data. The gif shows the same data
@@ -139,7 +209,7 @@ head(totalPop16)
 glimpse(totalPop16)
 ```
 
-### Using ggplot to map census data with {sf}
+#### Other: Using ggplot to map census data with {sf} | ??? don't understand
 
 Each plot adds more and more nuance and information
 
@@ -182,93 +252,14 @@ D <-
   theme(plot.title = element_text(size=22))
 ```
 
-### Working with ACS Data
-
-Here we will modify the 2016 ACS by using `spread()` to widen the data
-so that each census variable is now a column. We will use `rename()` to
-give sensible names to the columns and we will use `mutate()` to make
-new features out of the existing columns. These are all steps we had
-introduced in Lab 1, except here we are doing it on {sf} spatial data
-frames.
-
-```{r}
-# Let's "spread" the data into wide form
-
-tracts16 <- 
-  tracts16 %>%
-  dplyr::select( -NAME, -moe) %>%
-  spread(key = variable, value = estimate) %>%
-  rename(TotalPop = B25026_001, 
-         Whites = B02001_002,
-         FemaleBachelors = B15001_050, 
-         MaleBachelors = B15001_009,
-         MedHHInc = B19013_001, 
-         MedRent = B25058_001,
-         TotalPoverty = B06012_002)
-
-
-# Let's create new rate variables using mutate
-
-tracts16 <- 
-  tracts16 %>%
-  mutate(pctWhite = ifelse(TotalPop > 0, Whites / TotalPop, 0),
-         pctBachelors = ifelse(TotalPop > 0, ((FemaleBachelors + MaleBachelors) / TotalPop), 0),
-         pctPoverty = ifelse(TotalPop > 0, TotalPoverty / TotalPop, 0),
-         year = "2016") %>%
-  dplyr::select(-Whites,-FemaleBachelors,-MaleBachelors,-TotalPoverty)
-```
-
-Tracts 2016 is now complete. Let's grab 2020 tracts and do the same
-thing.
-
-### 2020 Census Data
-
-Notice that we are getting "wide" data here in the first place This
-saves us the trouble of using "spread". We do this by using the
-`output="wide"` argument to `get_acs()`. IN previous code chunks we
-split the use of `get_acs()` to download the data from the use of
-`mutate()` and other {dplyr} functions. Here we put the entire process
-into one continuous sequence of code using the "pipe" operator `%>%`.
-
-```{r results='hide'}
-tracts20 <- 
-  get_acs(geography = "tract", 
-          variables = c("B25026_001E","B02001_002E",
-                        "B15001_050E","B15001_009E",
-                        "B19013_001E","B25058_001E",
-                        "B06012_002E"), 
-          year=2020, state=42, county=101, 
-          geometry=TRUE, output="wide") %>%
-  st_transform('ESRI:102728') %>%
-  rename(TotalPop = B25026_001E, 
-         Whites = B02001_002E,
-         FemaleBachelors = B15001_050E, 
-         MaleBachelors = B15001_009E,
-         MedHHInc = B19013_001E, 
-         MedRent = B25058_001E,
-         TotalPoverty = B06012_002E) %>%
-  dplyr::select(-NAME, -starts_with("B")) %>%
-  mutate(pctWhite = ifelse(TotalPop > 0, Whites / TotalPop,0),
-         pctBachelors = ifelse(TotalPop > 0, ((FemaleBachelors + MaleBachelors) / TotalPop),0),
-         pctPoverty = ifelse(TotalPop > 0, TotalPoverty / TotalPop, 0),
-         year = "2020") %>%
-  dplyr::select(-Whites, -FemaleBachelors, -MaleBachelors, -TotalPoverty) 
-```
-
-To combine the 2016 and 2020 data into the same data frame we use
-`rbind()`. The "r" in `rbind()` stands for "row". So this function
-"binds rows of two or more data frames". Similarity the `cbind()`
-function binds columns of data frames, but that function is not used in
-this lab.
-
-```{r}
-
-allTracts <- rbind(tracts16,tracts20)
-```
-
-### Wrangling Transit Open Data
-
-Let's bring in Philadelphia's two main subway lines as spatial data and then `rbind` them together into one object, where each row is a stop, and the columns represent the line and the name of the stop. So we select only the `Station` and `Line` information (see how we do this in the rbind!), and then `st_transform` the whole thing to be the same crs as `tracts16`
+### 2- Transit Open Data Preparation
+#### 2-1 Get Dataframe of two subway lines of Philly
+5 Steps to get the whole dataframe: 
+  1. get data with `st_read`
+  2. change original `line` into the subway name itself
+  3. select only two columns: `Station` and `Line`
+  4. rebind two dataframe into one with `rebind`
+  5. transform the dataframe's crs into the same as `tracts16` with `st_transform`
 
 ```{r}
 
@@ -286,7 +277,7 @@ septaStops <-
   st_transform(st_crs(tracts16))  
 ```
 
-Let's visualize it
+Visualize it: 
 
 ```{r}
 
@@ -302,22 +293,16 @@ ggplot() +
   mapTheme()
 ```
 
-### Relating SEPTA Stops and Tracts
-
-Create buffers (in feet - note the CRS) around Septa stops - Both a
-buffer for each stop, and a union of the buffers... and bind these
-objects together
-
-Let's do this in pieces to understand this hefty code chunk.
-
-We put them in the same data frame... why?
+#### 2-2 Create buffers of both each stop and union stops
 
 ```{r}
-
+# get buffers of each stop
 stopBuffer <- st_buffer(septaStops, 2640)
 
+# get one union buffer of whole stops
 stopUnion <- st_union(st_buffer(septaStops, 2640))
 
+# create a whole dataframe combines two dataframes above
 septaBuffers <- 
   rbind(
      stopBuffer %>%
@@ -328,11 +313,9 @@ septaBuffers <-
       mutate(Legend = "Unioned Buffer"))
 ```
 
-Let's examine both buffers by making a "[small
-multiples](https://www.juiceanalytics.com/writing/better-know-visualization-small-multiples)"
-plot. This type of plot shows multiple views of the same data or
-geographic area. We accomplish this by using the `facet_wrap()`
-{ggplot2} function on the *Legend* column.
+Visualize both two kinds of data via `facet_wrap()`
+
+PS: Material to know more about `facet_wrap()`: `https://www.juiceanalytics.com/writing/better-know-visualization-small-multiples`
 
 ```{r}
 ggplot() +
@@ -343,47 +326,26 @@ ggplot() +
   mapTheme()
 ```
 
-### Using the `sf` Package for Spatial operations
+#### 2-3 Buffer Choose
 
-Consult the text to understand the difference between these three types
-of joins and discuss which is likely appropriate for this analysis
-
-Create an sf object with ONLY the unioned buffer from the `septaBuffers`
-spatial data frame.
-
+In this experience, we only choose the union buffer
 ```{r}
 buffer <- filter(septaBuffers, Legend=="Unioned Buffer")
 ```
 
-### Spatial Intersection of tracts and buffers
+### 3- Spatial Operation about intersection of  Acs data and Transit Data
 
-In this section, we deep dive a bit into three different ways to achieve
-a similar output. Namely, what we are accomplishing is to select the
-tracts from `tracts16` that intersect the buffer of transit stop in
-`buffer` . The three different ways to think about this operation are:
+Mainly use the `sf` Package
 
--   The intersection returns only the areas where both `buffer` and
-    `tracts16` polygons overlap. This is often referred to as "clipping"
+Main purpose: Select the tracts from `tracts16` that intersect the buffer of transit stop in `buffer` 
 
--   The intersection polygons are returns the full extend of any polygon
-    in `tracts16` that touch (or intersect) the `buffer`. There is no
-    clipping of the polygons
+We will try three different ways:
+  1. Clipping: The intersection returns only the areas where both `buffer` and `tracts16` polygons overlap.
+  2. Touch or intersect: The intersection polygons are returns the full extend of any polygon in `tracts16` that touch (or intersect) the `buffer`.
+  3. Centroids: The intersection of polygons to centroids returns the full extent of any polygon in `tracts16` that has its center (called a centroid) within the `buffer`
 
-    -   We will see three different ways to accomplish this particular
-        outcome
 
--   The intersection of polygons to centroids returns the full extent of
-    any polygon in `tracts16` that has its center (called a centroid)
-    within the `buffer`
-
-The version of spatial intersection you chose will depend on the type of
-analysis you are doing. This concept is explained more deeply in the
-text book, lecture and labs.
-
-Note: you will likely get a warning about "attribute variables are
-assumed..." don't worry about it.
-
-#### Spatial Clipping with `st_intersection()` on polygons
+#### 3-1 Clipping with `st_intersection()` on polygons
 
 ```{r}
 clip <- 
@@ -392,7 +354,7 @@ clip <-
   mutate(Selection_Type = "Clip")
 ```
 
-#### Spatial intersection with `st_intersects()` on polygons
+#### 3-2 Touch or Intersection with `st_intersects()` on polygons
 
 Simply, this type of spatial selection returns any polygon that overlaps
 or touches the buffer. We try to keep our code examples concise in this
@@ -439,22 +401,14 @@ selection3 <- tracts16 %>%
   mutate(Selection_Type = "Spatial Intersects")
 ```
 
-#### Spatial intersection with with `st_centroid()` on polygon centroids
-
-Finally, we are using centroids, or the point at the center of a polygon, to select whether a polygon from `tracts16` intersects the `buffer`. The steps here are:
-
-1.  convert tract polygons to centroids and to the spatial intersect to buffers using the `selection1` approach from above. The resulting geometry type is now a point and not a polygon
-
-2.  drop the geometry so that is becomes a regular non-spatial data frame
-
-3.  join the original `tracts16` data frame using the `GEOID` as the join field. Note that only the `GEOID` column is selected, however the polygon spatial features are also joined.
-
-4.  `st_sf()` is a function to turn it back to an {sf} spatial object
-
-5.  finally the `TotalPop` column is selected and a new field of `Selection_Type` is added
-
-Note: you will get a warning about "st_centroid assumes attributes... don't worry about it.
-
+#### 3-3 Centroids of Polygon  with `st_centroid()`
+Five steps:
+  1. convert tract polygons to centroids: and to the spatial intersect to buffers using the `selection1` approach from above. The resulting geometry type is now a point and not a polygon
+  2. drop the geometry: so that is becomes a regular non-spatial data frame
+  3. join the original `tracts16` data frame: using the `GEOID` as the join field. Note that only the `GEOID` column is selected, however the polygon spatial features are also joined.
+  4. turn back to an {sf} spatial object: `st_sf()` is a function to turn it back to an {sf} spatial object
+  5. Get the outcome: finally the `TotalPop` column is selected and a new field of `Selection_Type` is added
+  
 ```{r}
 selectCentroids <-
   st_centroid(tracts16)[buffer,] %>%
@@ -465,7 +419,7 @@ selectCentroids <-
   mutate(Selection_Type = "Select by Centroids")
 ```
 
-Plotting the results of each method
+#### 3-4 Plotting the results of each method
 
 ```{r}
 intersections <- rbind(clip, selection1, selectCentroids)
@@ -478,10 +432,8 @@ ggplot() +
   mapTheme()
 ```
 
-## Bonus Exercise - Can you create a small multiple map of the three types of operations? (NOT GRADED)
-
-Consult the text for some operations you can try. This is to be done in breakout groups
-
+## Bonus Exercise
+Create a small multiple map of the three types of operations? (NOT GRADED)
 ### Indicator Maps
 
 We do our centroid joins as above, and then do a "disjoin" to get the
